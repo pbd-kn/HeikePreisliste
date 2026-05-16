@@ -2,8 +2,6 @@
 $links = [
     ['href' => 'catalog.php', 'title' => 'Katalogansicht', 'desc' => 'Alle Katalogdaten anzeigen, filtern und Spalten wählen.'],
     ['href' => 'catalog_create.php', 'title' => 'Neuen Satz anlegen', 'desc' => 'Neuen Datensatz in catalog_items erfassen und berechnen.'],
-    ['href'  => 'catalog_edit.php', 'title' => 'Satz ändern', 'desc'  => 'Vorhandene Datensätze laden und bearbeiten.'],
-    ['href'  => 'catalog_delete.php', 'title' => 'Satz löschen', 'desc'  => 'Datensätze anhand ID oder artikel_code löschen.'],
     ['href' => 'list.php', 'title' => 'Liste (neueste 500)', 'desc' => 'Kompakte Übersicht der letzten Einträge.'],
     ['href' => 'print_catalog.php', 'title' => 'Druckansicht', 'desc' => 'Druckfreundliche Ansicht des Katalogs.'],
     ['href' => 'reimport_catalog.php', 'title' => 'Reimport ODS/CSV', 'desc' => 'Geänderte ODS als CSV erneut importieren (Staging + optional Live ersetzen).'],

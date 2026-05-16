@@ -1,53 +1,63 @@
 <?php
 require __DIR__ . '/config.php';
+
 // Optional local overrides (alternative: php.ini)
 ini_set('upload_max_filesize', ini_get('upload_max_filesize'));
 ini_set('post_max_size', ini_get('post_max_size'));
+
 $message = '';
 $error = '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         // DDL (CREATE TABLE) and TRUNCATE can auto-commit on MySQL, so keep them outside transaction
         $pdo->exec("CREATE TABLE IF NOT EXISTS catalog_items_import LIKE catalog_items");
+
         if (!empty($_POST['truncate_import'])) {
             $pdo->exec("DELETE FROM catalog_items_import");
         }
+
         $pdo->beginTransaction();
+
         $uploadField = $APP_UPLOAD_FIELD ?? 'csv';
         $upload = $_FILES[$uploadField] ?? null;
         if (!$upload || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             $code = (int)($upload['error'] ?? UPLOAD_ERR_NO_FILE);
             throw new RuntimeException('CSV-Upload fehlgeschlagen (Feld: ' . $uploadField . ', ErrorCode: ' . $code . ').');
         }
+
         $fh = fopen($upload['tmp_name'], 'r');
         if (!$fh) {
             throw new RuntimeException('CSV konnte nicht geöffnet werden.');
         }
-        //ARTIKEL;BILD;AG IN g;AG INCL.VERLUST;AU IN g;AU INCL. VERLUST;ZEIT in h;ARTIKEL/ZUSATZ;STÜCK;STEINE/PERLEN EK;STEINE/MESSE;ARTIKEL;STÜCK;FURNITUREN/STEINE EK;STEINE MESSE;PLATTIERUNG/ OXIDATION;SCHNUR;;;Kategorie;Subkategorie;ARTIKELNr. ;Artikel;EK ;PreisStueckEK;PreisPaarEK;VKStk(EK*2,5) in€ungerundet;PreisStueck2_5;PAARPREIS VKx2,5 in €ungerundet;PreisPaar2_5;Beschreibung;NochmalsArtikel;VKSTK(EK*2,3)ungerundet;PreisStueck2_3;VKPaar(EK*2,3)€ungerundet;PreisPaar2_3
-        $columns = ['artikel_code','bild','ag_in_g','ag_incl_verlust','au_in_g','au_incl_verlust','zeit_in_h','artikel_zusatz','stueck_1','steine_perlen_ek','steine_messe',
-            'artikel_2','stueck_2','furnituren_steine_ek','steine_messe_2','plattierung_oxidation','schnur_2',
-            'leer_1','leer_2',
-            'kategorie','subkategorie','artikelnr','artikel','ek','preis_stueck_ek','preis_paar_ek',
-            'vkstk_ek_2_5_ungerundet','preis_stueck_2_5',
-            'paarpreis_vk_2_5_ungerundet','preis_paar_2_5',
-            'beschreibung','nochmals_artikel',
-            'vkstk_ek_2_3_ungerundet','preis_stueck_2_3','vkpaar_ek_2_3_ungerundet','preis_paar_2_3',
-        'reserve_1','reserve_2','reserve_3','reserve_4'
+
+        $columns = [
+            'materialpreis_metall','arbeitszeit','verlust','galvanik','furnituren_au_750_333','furnituren_ag_925','colorit','schnur',
+            'verschluesse_gg_wg','verschluesse_925','verschluesse_edelstahl','stein_typ','stein_faktor','perle_typ','perle_faktor',
+            'furnituren_wg','zusatz_q','fixkosten_r','fixkosten_s','sonstiges_t','reparaturen','reparaturpreis','kalkulation_w',
+            'x_basis','y_aufgerundet','zwischenwert_z','aa_multiplikator','ab_vk_aufgerundet',
+            'spalte_ac','spalte_ad','spalte_ae','spalte_af','spalte_ag','spalte_ah','spalte_ai','spalte_aj','spalte_ak','spalte_al','spalte_am','spalte_an'
         ];
+
         $ins = $pdo->prepare(
             "INSERT INTO catalog_items_import (" . implode(',', $columns) . ") VALUES (" . implode(',', array_fill(0, count($columns), '?')) . ")"
         );
+
         $rows = 0;
+
         $headerMode = ($_POST['header_mode'] ?? 'auto'); // auto|yes|no
         $firstLine = fgetcsv($fh, 0, ';', '"', '\\');
         if ($firstLine === false) {
             throw new RuntimeException('CSV ist leer.');
         }
+
         $normalizedCols = array_map('strtolower', $columns);
         $headerMap = null;
-        $normalizedFirst = array_map(fn ($v) => strtolower(trim((string)$v)), $firstLine);
+
+        $normalizedFirst = array_map(fn($v) => strtolower(trim((string)$v)), $firstLine);
         $matchingHeaders = count(array_intersect($normalizedFirst, $normalizedCols));
         $isHeader = ($headerMode === 'yes') || ($headerMode === 'auto' && $matchingHeaders >= 5);
+
         if ($isHeader) {
             $headerMap = [];
             foreach ($columns as $idx => $colName) {
@@ -59,45 +69,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $headerMap = null;
             rewind($fh);
         }
-        $expectedColumns = count($columns);
-        while (($rawLine = fgets($fh)) !== false) {
-            $rawLine = rtrim($rawLine, "\r\n");
-            // Anzahl ; zählen
-            $semicolonCount = substr_count($rawLine, ';');
-            // Fehlende ; hinten ergänzen
-            // damit immer genug leere Spalten existieren
-            while ($semicolonCount < ($expectedColumns - 1)) {
-                $rawLine .= ';';
-                $semicolonCount++;
-            }
-            // Jetzt korrekt parsen
-            $line = str_getcsv($rawLine, ';', '"', '\\');
-            // leere Zeilen überspringen
-            if (count(array_filter($line, fn ($v) => trim((string)$v) !== '')) === 0) {
+
+        while (($line = fgetcsv($fh, 0, ';', '"', '\\')) !== false) {
+            if (count(array_filter($line, fn($v) => trim((string)$v) !== '')) === 0) {
                 continue;
             }
-            // exakt auf DB-Struktur bringen
-            $row = array_pad($line, $expectedColumns, null);
-            $row = array_slice($row, 0, $expectedColumns);
-            // DEBUG
-            echo "<hr>";
-            echo "CSV-Spalten: " . count($line) . "<br>";
-            echo "AE: " . htmlspecialchars((string)($row[30] ?? 'NULL')) . "<br>";
-            // IMPORT
+
+            if ($headerMap !== null) {
+                $row = [];
+                foreach ($columns as $idx => $colName) {
+                    $srcPos = $headerMap[$idx];
+                    $row[] = ($srcPos === null) ? null : ($line[$srcPos] ?? null);
+                }
+            } else {
+                $row = array_pad($line, count($columns), null);
+                $row = array_slice($row, 0, count($columns));
+            }
+
             $ins->execute($row);
             $rows++;
         }
         fclose($fh);
+
         if (!empty($_POST['replace_live'])) {
             $pdo->exec("DELETE FROM catalog_items");
             $pdo->exec("INSERT INTO catalog_items (" . implode(',', $columns) . ") SELECT " . implode(',', $columns) . " FROM catalog_items_import");
         }
+
         $pdo->commit();
         $message = "Import erfolgreich. Zeilen: {$rows}";
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
+        if ($pdo->inTransaction()) $pdo->rollBack();
         $error = $e->getMessage();
     }
 }
@@ -113,13 +115,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <div class="container py-4">
   <h4>Reimport aus geänderter ODS/CSV</h4>
   <p class="text-muted">Unterstützt jetzt CSV mit Header (Spaltennamen) oder ohne Header. Upload-Feld: <code><?= htmlspecialchars($APP_UPLOAD_FIELD ?? 'csv') ?></code></p>
+
   <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
   <?php if ($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+
   <form method="post" enctype="multipart/form-data" class="card card-body">
     <div class="mb-3">
       <label class="form-label">CSV-Datei</label>
       <input class="form-control" type="file" name="<?= htmlspecialchars($APP_UPLOAD_FIELD ?? 'csv') ?>" accept=".csv" required>
     </div>
+
     <div class="mb-3">
       <label class="form-label">Header-Modus</label>
       <select class="form-select" name="header_mode">
@@ -128,6 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <option value="no">CSV ohne Header (nur Reihenfolge)</option>
       </select>
     </div>
+
     <div class="form-check">
       <input class="form-check-input" type="checkbox" name="truncate_import" id="truncate_import" checked>
       <label class="form-check-label" for="truncate_import">Staging-Tabelle vorab leeren (catalog_items_import)</label>

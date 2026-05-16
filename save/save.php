@@ -1,17 +1,22 @@
 <?php
 require 'config.php';
 require 'calculate.php';
+
 $artikelname   = trim($_POST['artikelname'] ?? '');
 $artikelgruppe = trim($_POST['artikelgruppe'] ?? '');
 $profileCode   = $_POST['profile_code'] ?? '';
 $gewicht       = (float)($_POST['gewicht_g'] ?? 0);
 $zeit          = (float)($_POST['arbeitszeit_h'] ?? 0);
+
 if ($artikelname === '' || $profileCode === '' || $gewicht < 0 || $zeit < 0) {
     die("Ungültige Eingaben.");
 }
+
 try {
     $calc = calculatePrice($pdo, $profileCode, $gewicht, $zeit);
+
     $pdo->beginTransaction();
+
     // Produkt anlegen
     $st = $pdo->prepare("
       INSERT INTO products (artikelname, artikelgruppe, profile_code, basisgewicht_g, basis_arbeitszeit_h)
@@ -19,6 +24,7 @@ try {
     ");
     $st->execute([$artikelname, $artikelgruppe, $profileCode, $gewicht, $zeit]);
     $productId = (int)$pdo->lastInsertId();
+
     // Berechnung speichern
     $st = $pdo->prepare("
       INSERT INTO price_calculations (
@@ -32,11 +38,10 @@ try {
       $calc['materialpreis'], $calc['verlust'], $calc['stundensatz'], $calc['fix_r3'], $calc['fix_s'], $calc['mult_vk'],
       $calc['mat_mit_verlust'], $calc['x'], $calc['y'], $calc['aa'], $calc['ab']
     ]);
+
     $pdo->commit();
 } catch (Throwable $e) {
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
+    if ($pdo->inTransaction()) $pdo->rollBack();
     die("Fehler: " . $e->getMessage());
 }
 ?>
@@ -53,11 +58,11 @@ try {
   <div class="card card-body">
     <h5>Ergebnis</h5>
     <ul>
-      <li>Material mit Verlust: <b><?=number_format($calc['mat_mit_verlust'], 2, ',', '.')?> €</b></li>
-      <li>X Basis: <b><?=number_format($calc['x'], 2, ',', '.')?> €</b></li>
-      <li>Y (aufgerundet): <b><?=number_format($calc['y'], 2, ',', '.')?> €</b></li>
-      <li>AA (Y * <?=$calc['mult_vk']?>): <b><?=number_format($calc['aa'], 2, ',', '.')?> €</b></li>
-      <li>AB VK (aufgerundet): <b><?=number_format($calc['ab'], 2, ',', '.')?> €</b></li>
+      <li>Material mit Verlust: <b><?=number_format($calc['mat_mit_verlust'],2,',','.')?> €</b></li>
+      <li>X Basis: <b><?=number_format($calc['x'],2,',','.')?> €</b></li>
+      <li>Y (aufgerundet): <b><?=number_format($calc['y'],2,',','.')?> €</b></li>
+      <li>AA (Y * <?=$calc['mult_vk']?>): <b><?=number_format($calc['aa'],2,',','.')?> €</b></li>
+      <li>AB VK (aufgerundet): <b><?=number_format($calc['ab'],2,',','.')?> €</b></li>
     </ul>
     <a class="btn btn-primary" href="index.php">Neu</a>
     <a class="btn btn-outline-secondary" href="list.php">Historie</a>

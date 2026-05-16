@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv'])) {
                 rewind($handle);
             }
 
-            $insertCols = array_map(fn ($c) => "col_$c", $cols);
+            $insertCols = array_map(fn($c) => "col_$c", $cols);
             $sql = "INSERT INTO catalog_items (" . implode(',', $insertCols) . ", source_row) VALUES (" .
                    implode(',', array_fill(0, $maxCols + 1, '?')) . ")";
             $st = $pdo->prepare($sql);
@@ -46,14 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv'])) {
                 // Optional: leere Zeilen überspringen
                 $allEmpty = true;
                 foreach ($row as $v) {
-                    if (trim((string)$v) !== '') {
-                        $allEmpty = false;
-                        break;
-                    }
+                    if (trim((string)$v) !== '') { $allEmpty = false; break; }
                 }
-                if ($allEmpty) {
-                    continue;
-                }
+                if ($allEmpty) continue;
 
                 // auf 40 Spalten normalisieren
                 if (count($row) < $maxCols) {
