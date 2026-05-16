@@ -36,7 +36,7 @@ function parsePercent(?string $v): float
  * ...
  */
 function calcCatalog(array $row): array
-{
+{hhhh
     // -------------------------------------------------
     // BASISWERTE
     // -------------------------------------------------
