@@ -1,53 +1,7 @@
 <?php
 require __DIR__ . '/config.php';
 require __DIR__ . '/calculate.php';
-/*
-|--------------------------------------------------------------------------
-| Felder
-|--------------------------------------------------------------------------
-*/
-$fields = [
-    'artikel_code',
-    'bild',
-    'ag_in_g',
-    'ag_incl_verlust',
-    'au_in_g',
-    'au_incl_verlust',
-    'zeit_in_h',
-    'artikel_zusatz',
-    'stueck_1',
-    'steine_perlen_ek',
-    'steine_messe',
-    'artikel_2',
-    'stueck_2',
-    'furnituren_steine_ek',
-    'steine_messe_2',
-    'plattierung_oxidation',
-    'schnur_2',
-    'leer_1',
-    'leer_2',
-    'kategorie',
-    'subkategorie',
-    'artikelnr',
-    'artikel',
-    'ek',
-    'preis_stueck_ek',
-    'preis_paar_ek',
-    'vkstk_ek_2_5_ungerundet',
-    'preis_stueck_2_5',
-    'paarpreis_vk_2_5_ungerundet',
-    'preis_paar_2_5',
-    'beschreibung',
-    'nochmals_artikel',
-    'vkstk_ek_2_3_ungerundet',
-    'preis_stueck_2_3',
-    'vkpaar_ek_2_3_ungerundet',
-    'preis_paar_2_3',
-    'reserve_1',
-    'reserve_2',
-    'reserve_3',
-    'reserve_4'
-];
+$fields = catalogColumns();
 /*
 |--------------------------------------------------------------------------
 | Meldungen
@@ -57,6 +11,7 @@ $message = '';
 $isError = false;
 $row = null;
 $searchResults = [];
+$globalParams = loadGlobalParams($pdo);
 /*
 |--------------------------------------------------------------------------
 | Nach ID laden
@@ -176,8 +131,10 @@ if (
         |--------------------------------------------------------------------------
         */
         if (!$isError) {
+            $formulaRules =
+                loadCatalogFormulaRules($pdo, $data['artikel_code']);
             $calc =
-                calcCatalog($data);
+                calcCatalog($data, $globalParams, $formulaRules);
             $data =
                 array_merge($data, $calc);
             $set = [];
@@ -243,6 +200,20 @@ if (
         >
             Katalog
         </a>
+        <?php if ($row): ?>
+            <a
+                class="btn btn-outline-secondary btn-sm"
+                href="calc_explain.php?id=<?= (int)$row['id'] ?>"
+            >
+                Berechnung anzeigen
+            </a>
+            <a
+                class="btn btn-outline-secondary btn-sm"
+                href="formula_rules.php?artikel_code=<?= urlencode((string)$row['artikel_code']) ?>"
+            >
+                Formelregeln
+            </a>
+        <?php endif; ?>
     </div>
     <?php if ($message): ?>
         <div class="alert alert-<?= $isError ? 'danger' : 'success' ?>">

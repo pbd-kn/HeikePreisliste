@@ -1,47 +1,39 @@
--- Reimport script for updated ODS/CSV using semantic column names.
+-- Reimport script for updated ODS/CSV using the current catalog_items column names.
 -- Usage in phpMyAdmin:
--- 1) Import CSV first into table catalog_items_import (same columns as catalog_items, without AUTO_INCREMENT id requirement)
--- 2) Execute this script.
+-- 1) Import CSV first into table catalog_items_import with the same structure as catalog_items.
+-- 2) Execute this script to replace the live data.
 
 USE preisliste_db;
 
--- 1) Ensure staging table exists with same structure
 CREATE TABLE IF NOT EXISTS catalog_items_import LIKE catalog_items;
 
--- 2) Optional cleanup of staging before each import
--- TRUNCATE TABLE catalog_items_import;
-
--- 3) Replace productive data with staging data
 START TRANSACTION;
 
-TRUNCATE TABLE catalog_items;
+DELETE FROM catalog_items;
 
 INSERT INTO catalog_items (
-  materialpreis_metall, arbeitszeit, verlust, galvanik,
-  furnituren_au_750_333, furnituren_ag_925, colorit, schnur,
-  verschluesse_gg_wg, verschluesse_925, verschluesse_edelstahl,
-  stein_typ, stein_faktor, perle_typ, perle_faktor, furnituren_wg,
-  zusatz_q, fixkosten_r, fixkosten_s, sonstiges_t, reparaturen,
-  reparaturpreis, kalkulation_w, x_basis, y_aufgerundet,
-  zwischenwert_z, aa_multiplikator, ab_vk_aufgerundet,
-  spalte_ac, spalte_ad, spalte_ae, spalte_af, spalte_ag, spalte_ah,
-  spalte_ai, spalte_aj, spalte_ak, spalte_al, spalte_am, spalte_an,
-  source_row, imported_at
+  artikel_code, bild, ag_in_g, ag_incl_verlust, au_in_g, au_incl_verlust,
+  zeit_in_h, artikel_zusatz, stueck_1, steine_perlen_ek, steine_messe,
+  artikel_2, stueck_2, furnituren_steine_ek, steine_messe_2,
+  plattierung_oxidation, schnur_2, leer_1, leer_2, kategorie,
+  subkategorie, artikelnr, artikel, ek, preis_stueck_ek, preis_paar_ek,
+  vkstk_ek_2_5_ungerundet, preis_stueck_2_5,
+  paarpreis_vk_2_5_ungerundet, preis_paar_2_5, beschreibung,
+  nochmals_artikel, vkstk_ek_2_3_ungerundet, preis_stueck_2_3,
+  vkpaar_ek_2_3_ungerundet, preis_paar_2_3, reserve_1, reserve_2,
+  reserve_3, reserve_4
 )
 SELECT
-  materialpreis_metall, arbeitszeit, verlust, galvanik,
-  furnituren_au_750_333, furnituren_ag_925, colorit, schnur,
-  verschluesse_gg_wg, verschluesse_925, verschluesse_edelstahl,
-  stein_typ, stein_faktor, perle_typ, perle_faktor, furnituren_wg,
-  zusatz_q, fixkosten_r, fixkosten_s, sonstiges_t, reparaturen,
-  reparaturpreis, kalkulation_w, x_basis, y_aufgerundet,
-  zwischenwert_z, aa_multiplikator, ab_vk_aufgerundet,
-  spalte_ac, spalte_ad, spalte_ae, spalte_af, spalte_ag, spalte_ah,
-  spalte_ai, spalte_aj, spalte_ak, spalte_al, spalte_am, spalte_an,
-  source_row, COALESCE(imported_at, CURRENT_TIMESTAMP)
+  artikel_code, bild, ag_in_g, ag_incl_verlust, au_in_g, au_incl_verlust,
+  zeit_in_h, artikel_zusatz, stueck_1, steine_perlen_ek, steine_messe,
+  artikel_2, stueck_2, furnituren_steine_ek, steine_messe_2,
+  plattierung_oxidation, schnur_2, leer_1, leer_2, kategorie,
+  subkategorie, artikelnr, artikel, ek, preis_stueck_ek, preis_paar_ek,
+  vkstk_ek_2_5_ungerundet, preis_stueck_2_5,
+  paarpreis_vk_2_5_ungerundet, preis_paar_2_5, beschreibung,
+  nochmals_artikel, vkstk_ek_2_3_ungerundet, preis_stueck_2_3,
+  vkpaar_ek_2_3_ungerundet, preis_paar_2_3, reserve_1, reserve_2,
+  reserve_3, reserve_4
 FROM catalog_items_import;
 
 COMMIT;
-
--- 4) Optional: clear staging after successful import
--- TRUNCATE TABLE catalog_items_import;

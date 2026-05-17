@@ -2,8 +2,8 @@
 
 $DB_HOST = getenv('DB_HOST') ?: '127.0.0.1';
 $DB_NAME = getenv('DB_NAME') ?: 'preisliste_db';
-$DB_USER = getenv('DB_USER') ?: 'root';
-$DB_PASS = getenv('DB_PASS') ?: '';
+$DB_USER = getenv('DB_USER') ?: 'peter';
+$DB_PASS = getenv('DB_PASS') ?: 'sql666sql';
 
 try {
     $pdo = new PDO(

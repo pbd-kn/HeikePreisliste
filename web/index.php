@@ -1,5 +1,8 @@
 <?php
 $links = [
+    ['href' => 'globals.php', 'title' => 'Globale Variablen', 'desc' => 'Materialpreise, Faktoren und feste Werte zentral pflegen.'],
+    ['href' => 'formula_rules.php', 'title' => 'Formelregeln', 'desc' => 'Default-Formeln und artikel_code-spezifische Regeln pflegen.'],
+    ['href' => 'calc_explain.php', 'title' => 'Berechnung anzeigen', 'desc' => 'Artikel suchen und EK-/Preisformel nachvollziehen.'],
     ['href' => 'catalog.php', 'title' => 'Katalogansicht', 'desc' => 'Alle Katalogdaten anzeigen, filtern und Spalten wählen.'],
     ['href' => 'catalog_create.php', 'title' => 'Neuen Satz anlegen', 'desc' => 'Neuen Datensatz in catalog_items erfassen und berechnen.'],
     ['href'  => 'catalog_edit.php', 'title' => 'Satz ändern', 'desc'  => 'Vorhandene Datensätze laden und bearbeiten.'],

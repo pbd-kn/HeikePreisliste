@@ -1,102 +1,188 @@
 <?php
 require __DIR__ . '/config.php';
-// Optional local overrides (alternative: php.ini)
+require __DIR__ . '/calculate.php';
+
 ini_set('upload_max_filesize', ini_get('upload_max_filesize'));
 ini_set('post_max_size', ini_get('post_max_size'));
+
 $message = '';
 $error = '';
+$columns = catalogColumns();
+$globalParams = loadGlobalParams($pdo);
+
+function normalizeReimportHeader(string $value): string
+{
+    $value = strtolower(trim($value));
+    $value = preg_replace('/^\xEF\xBB\xBF/', '', $value);
+    $value = str_replace(['ä', 'ö', 'ü', 'ß'], ['ae', 'oe', 'ue', 'ss'], $value);
+    $value = str_replace([' ', '.', '/', '-', '(', ')', '*', '€'], '_', $value);
+    $value = preg_replace('/_+/', '_', $value);
+    return trim($value, '_');
+}
+
+function buildHeaderMap(array $header, array $columns): array
+{
+    if (count($header) >= count($columns) - 4) {
+        return array_combine($columns, array_keys($columns));
+    }
+
+    $normalizedHeader = array_map(fn ($v) => normalizeReimportHeader((string)$v), $header);
+    $aliases = catalogColumnAliases();
+    $map = [];
+
+    foreach ($columns as $column) {
+        $pos = array_search(normalizeReimportHeader($column), $normalizedHeader, true);
+        if ($pos === false) {
+            $aliasNames = array_keys($aliases, $column, true);
+            foreach ($aliasNames as $aliasName) {
+                $pos = array_search(normalizeReimportHeader($aliasName), $normalizedHeader, true);
+                if ($pos !== false) {
+                    break;
+                }
+            }
+        }
+        $map[$column] = ($pos === false) ? null : $pos;
+    }
+
+    return $map;
+}
+
+function matchingReimportHeaderCount(array $line, array $columns): int
+{
+    $aliases = catalogColumnAliases();
+    $knownHeaders = array_map('normalizeReimportHeader', array_merge($columns, array_keys($aliases)));
+    $normalizedLine = array_map(fn ($v) => normalizeReimportHeader((string)$v), $line);
+    return count(array_intersect($normalizedLine, $knownHeaders));
+}
+
+function mapCsvLine(array $line, array $columns, ?array $headerMap): array
+{
+    $row = [];
+    foreach ($columns as $idx => $column) {
+        if ($headerMap !== null) {
+            $pos = $headerMap[$column] ?? null;
+            $row[$column] = ($pos === null) ? '' : trim((string)($line[$pos] ?? ''));
+        } else {
+            $row[$column] = trim((string)($line[$idx] ?? ''));
+        }
+    }
+    return $row;
+}
+
+function applyReimportArticleCodeIndex(array $row, array &$usedArticleCodes): array
+{
+    $articleCode = trim((string)($row['artikel_code'] ?? ''));
+    if ($articleCode === '') {
+        return $row;
+    }
+
+    $candidate = $articleCode;
+    $index = 1;
+    while (isset($usedArticleCodes[$candidate])) {
+        $index++;
+        $candidate = $articleCode . '-' . $index;
+    }
+
+    $usedArticleCodes[$candidate] = true;
+    $row['artikel_code'] = $candidate;
+    return $row;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $fh = null;
     try {
-        // DDL (CREATE TABLE) and TRUNCATE can auto-commit on MySQL, so keep them outside transaction
         $pdo->exec("CREATE TABLE IF NOT EXISTS catalog_items_import LIKE catalog_items");
         if (!empty($_POST['truncate_import'])) {
             $pdo->exec("DELETE FROM catalog_items_import");
         }
-        $pdo->beginTransaction();
+
         $uploadField = $APP_UPLOAD_FIELD ?? 'csv';
         $upload = $_FILES[$uploadField] ?? null;
         if (!$upload || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             $code = (int)($upload['error'] ?? UPLOAD_ERR_NO_FILE);
             throw new RuntimeException('CSV-Upload fehlgeschlagen (Feld: ' . $uploadField . ', ErrorCode: ' . $code . ').');
         }
+
         $fh = fopen($upload['tmp_name'], 'r');
         if (!$fh) {
             throw new RuntimeException('CSV konnte nicht geöffnet werden.');
         }
-        //ARTIKEL;BILD;AG IN g;AG INCL.VERLUST;AU IN g;AU INCL. VERLUST;ZEIT in h;ARTIKEL/ZUSATZ;STÜCK;STEINE/PERLEN EK;STEINE/MESSE;ARTIKEL;STÜCK;FURNITUREN/STEINE EK;STEINE MESSE;PLATTIERUNG/ OXIDATION;SCHNUR;;;Kategorie;Subkategorie;ARTIKELNr. ;Artikel;EK ;PreisStueckEK;PreisPaarEK;VKStk(EK*2,5) in€ungerundet;PreisStueck2_5;PAARPREIS VKx2,5 in €ungerundet;PreisPaar2_5;Beschreibung;NochmalsArtikel;VKSTK(EK*2,3)ungerundet;PreisStueck2_3;VKPaar(EK*2,3)€ungerundet;PreisPaar2_3
-        $columns = ['artikel_code','bild','ag_in_g','ag_incl_verlust','au_in_g','au_incl_verlust','zeit_in_h','artikel_zusatz','stueck_1','steine_perlen_ek','steine_messe',
-            'artikel_2','stueck_2','furnituren_steine_ek','steine_messe_2','plattierung_oxidation','schnur_2',
-            'leer_1','leer_2',
-            'kategorie','subkategorie','artikelnr','artikel','ek','preis_stueck_ek','preis_paar_ek',
-            'vkstk_ek_2_5_ungerundet','preis_stueck_2_5',
-            'paarpreis_vk_2_5_ungerundet','preis_paar_2_5',
-            'beschreibung','nochmals_artikel',
-            'vkstk_ek_2_3_ungerundet','preis_stueck_2_3','vkpaar_ek_2_3_ungerundet','preis_paar_2_3',
-        'reserve_1','reserve_2','reserve_3','reserve_4'
-        ];
-        $ins = $pdo->prepare(
-            "INSERT INTO catalog_items_import (" . implode(',', $columns) . ") VALUES (" . implode(',', array_fill(0, count($columns), '?')) . ")"
-        );
-        $rows = 0;
-        $headerMode = ($_POST['header_mode'] ?? 'auto'); // auto|yes|no
+
         $firstLine = fgetcsv($fh, 0, ';', '"', '\\');
         if ($firstLine === false) {
             throw new RuntimeException('CSV ist leer.');
         }
-        $normalizedCols = array_map('strtolower', $columns);
+
+        $headerMode = $_POST['header_mode'] ?? 'auto';
         $headerMap = null;
-        $normalizedFirst = array_map(fn ($v) => strtolower(trim((string)$v)), $firstLine);
-        $matchingHeaders = count(array_intersect($normalizedFirst, $normalizedCols));
-        $isHeader = ($headerMode === 'yes') || ($headerMode === 'auto' && $matchingHeaders >= 5);
-        if ($isHeader) {
-            $headerMap = [];
-            foreach ($columns as $idx => $colName) {
-                $pos = array_search(strtolower($colName), $normalizedFirst, true);
-                $headerMap[$idx] = ($pos === false) ? null : $pos;
+        $isHeader = false;
+
+        if ($headerMode === 'yes') {
+            $headerMap = buildHeaderMap($firstLine, $columns);
+            $isHeader = true;
+        } elseif ($headerMode === 'auto') {
+            $line = $firstLine;
+            while ($line !== false) {
+                if (matchingReimportHeaderCount($line, $columns) >= 5) {
+                    $headerMap = buildHeaderMap($line, $columns);
+                    $isHeader = true;
+                    break;
+                }
+
+                $line = fgetcsv($fh, 0, ';', '"', '\\');
             }
-        } else {
-            // first line is data -> process it below with positional mapping
-            $headerMap = null;
+        }
+
+        if (!$isHeader) {
             rewind($fh);
         }
-        $expectedColumns = count($columns);
-        while (($rawLine = fgets($fh)) !== false) {
-            $rawLine = rtrim($rawLine, "\r\n");
-            // Anzahl ; zählen
-            $semicolonCount = substr_count($rawLine, ';');
-            // Fehlende ; hinten ergänzen
-            // damit immer genug leere Spalten existieren
-            while ($semicolonCount < ($expectedColumns - 1)) {
-                $rawLine .= ';';
-                $semicolonCount++;
-            }
-            // Jetzt korrekt parsen
-            $line = str_getcsv($rawLine, ';', '"', '\\');
-            // leere Zeilen überspringen
+
+        $insertSql =
+            "INSERT INTO catalog_items_import ("
+            . implode(',', $columns)
+            . ") VALUES ("
+            . implode(',', array_fill(0, count($columns), '?'))
+            . ")";
+        $insert = $pdo->prepare($insertSql);
+
+        $pdo->beginTransaction();
+        $rows = 0;
+        $usedArticleCodes = [];
+        while (($line = fgetcsv($fh, 0, ';', '"', '\\')) !== false) {
             if (count(array_filter($line, fn ($v) => trim((string)$v) !== '')) === 0) {
                 continue;
             }
-            // exakt auf DB-Struktur bringen
-            $row = array_pad($line, $expectedColumns, null);
-            $row = array_slice($row, 0, $expectedColumns);
-            // DEBUG
-            echo "<hr>";
-            echo "CSV-Spalten: " . count($line) . "<br>";
-            echo "AE: " . htmlspecialchars((string)($row[30] ?? 'NULL')) . "<br>";
-            // IMPORT
-            $ins->execute($row);
+
+            $row = mapCsvLine($line, $columns, $headerMap);
+            if (trim((string)($row['artikel_code'] ?? '')) === '') {
+                continue;
+            }
+            $row = applyReimportArticleCodeIndex($row, $usedArticleCodes);
+            $formulaRules = loadCatalogFormulaRules($pdo, $row['artikel_code']);
+            $row = array_merge($row, calcCatalog($row, $globalParams, $formulaRules));
+            $insert->execute(array_map(fn ($column) => $row[$column] ?? '', $columns));
             $rows++;
         }
+
         fclose($fh);
+        $fh = null;
+
         if (!empty($_POST['replace_live'])) {
             $pdo->exec("DELETE FROM catalog_items");
-            $pdo->exec("INSERT INTO catalog_items (" . implode(',', $columns) . ") SELECT " . implode(',', $columns) . " FROM catalog_items_import");
+            $pdo->exec(
+                "INSERT INTO catalog_items (" . implode(',', $columns) . ") "
+                . "SELECT " . implode(',', $columns) . " FROM catalog_items_import"
+            );
         }
+
         $pdo->commit();
         $message = "Import erfolgreich. Zeilen: {$rows}";
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
+        }
+        if (is_resource($fh)) {
+            fclose($fh);
         }
         $error = $e->getMessage();
     }
@@ -112,7 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body class="bg-light">
 <div class="container py-4">
   <h4>Reimport aus geänderter ODS/CSV</h4>
-  <p class="text-muted">Unterstützt jetzt CSV mit Header (Spaltennamen) oder ohne Header. Upload-Feld: <code><?= htmlspecialchars($APP_UPLOAD_FIELD ?? 'csv') ?></code></p>
+  <p class="text-muted">Unterstützt CSV mit Spaltennamen oder ohne Header. Upload-Feld: <code><?= htmlspecialchars($APP_UPLOAD_FIELD ?? 'csv') ?></code></p>
   <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
   <?php if ($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
   <form method="post" enctype="multipart/form-data" class="card card-body">
@@ -133,7 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <label class="form-check-label" for="truncate_import">Staging-Tabelle vorab leeren (catalog_items_import)</label>
     </div>
     <div class="form-check mb-3">
-      <input class="form-check-input" type="checkbox" name="replace_live" id="replace_live" checked>
+      <input class="form-check-input" type="checkbox" name="replace_live" id="replace_live">
       <label class="form-check-label" for="replace_live">Produktive Tabelle ersetzen (catalog_items)</label>
     </div>
     <button class="btn btn-primary">Import starten</button>
